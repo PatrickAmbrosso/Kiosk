@@ -3,3 +3,31 @@
 @import 'tailwindcss/utilities';
 
 /* custom styles below*/
+
+/* custom scrollbar styles */
+.scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #d1d5db;
+    /* Tailwind's gray-300 color */
+    border-radius: 9999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.scrollbar-thumb-rounded::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+}
+
+/* Optionally, add styles for non-webkit browsers */
+.scrollbar-thin {
+    scrollbar-width: thin;
+    /* For Firefox */
+    scrollbar-color: #d1d5db transparent;
+    /* For Firefox */
+}

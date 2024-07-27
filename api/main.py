@@ -1,32 +1,31 @@
-from fastapi import FastAPI, Request, Form, HTTPException, Depends, status
+from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, Session
+from sqlalchemy import create_engine, Column, Integer, String, Text
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from pydantic import BaseModel
 from typing import Optional
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import bcrypt
 import os
 
 # JWT Configuration
-SECRET_KEY = "your-secret-key"  # Change this!
+SECRET_KEY = "your-secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# FastAPI setup
-app = FastAPI()
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 # Database setup
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_PATH = os.path.join(BASE_DIR, "../data/kiosk.db")
+DATABASE_PATH = os.path.join(BASE_DIR, "..", "data", "kiosk.db")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "..", "web", "templates")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+
+# FastAPI setup
+app = FastAPI()
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
@@ -46,7 +45,7 @@ class KioskNode(Base):
     __tablename__ = "kiosk_nodes"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
-    content = Column(String)
+    content = Column(Text)
 
 
 Base.metadata.create_all(bind=engine)
@@ -78,33 +77,34 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 
-async def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
-):
+async def get_current_user(request: Request, db: Session = Depends(get_db)):
+    token = request.cookies.get("access_token")  # Get token from cookies
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        if token is None:
+            return None
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
-            raise credentials_exception
+            return None
         token_data = TokenData(username=username)
     except JWTError:
-        raise credentials_exception
+        return None
     user = db.query(User).filter(User.username == token_data.username).first()
     if user is None:
-        raise credentials_exception
+        return None
     return user
 
 
@@ -120,82 +120,93 @@ def verify_password(plain_password, hashed_password):
 async def overview(request: Request, db: Session = Depends(get_db)):
     nodes = db.query(KioskNode).all()
     return templates.TemplateResponse(
-        "overview.html", {"request": request, "nodes": nodes}
+        "index.html", {"request": request, "nodes": nodes}
     )
 
 
-@app.get("/node/{node_id}", response_class=HTMLResponse)
-async def node_content(request: Request, node_id: int, db: Session = Depends(get_db)):
-    node = db.query(KioskNode).filter(KioskNode.id == node_id).first()
-    if not node:
-        raise HTTPException(status_code=404, detail="Node not found")
-    return templates.TemplateResponse("node.html", {"request": request, "node": node})
-
-
 @app.get("/admin/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+async def login_page(request: Request, current_user: User = Depends(get_current_user)):
+    if current_user:
+        # If the user is already authenticated, redirect to the admin dashboard
+        return RedirectResponse(url="/admin", status_code=status.HTTP_302_FOUND)
+
+    # Render the login page if not authenticated
     return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.post("/admin/login")
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+        return templates.TemplateResponse(
+            "/components/toast-warning.html", {"request": request}
+        )
+    else:
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
+        )
+
+        response = HTMLResponse(content="", status_code=200)
+        response.headers["HX-Redirect"] = "/admin"
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            max_age=access_token_expires.total_seconds(),
+        )
+
+        return response
+
+
+@app.post("/admin/logout")
+async def logout(request: Request):
+    response = HTMLResponse(content="", status_code=200)
+    response.headers["HX-Redirect"] = "/"
+    response.delete_cookie(key="access_token")  # Clear the JWT cookie
+    return response
 
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(
     request: Request,
-    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    if not current_user:
+        return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
+
+    nodes = db.query(KioskNode).all()
+    # Set cache control headers to prevent caching
+    headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Cache-Control": "post-check=0, pre-check=0",
+        "Pragma": "no-cache",
+    }
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "nodes": nodes, "user": current_user},
+        headers=headers,
+    )
+
+
+@app.get("/admin/config", response_class=HTMLResponse)
+async def admin_dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not current_user:
+        return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
+
     nodes = db.query(KioskNode).all()
     return templates.TemplateResponse(
-        "admin_dashboard.html",
+        "dashboard.html",
         {"request": request, "nodes": nodes, "user": current_user},
-    )
-
-
-@app.get("/admin/{node_id}", response_class=HTMLResponse)
-async def node_config(
-    request: Request,
-    node_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    node = db.query(KioskNode).filter(KioskNode.id == node_id).first()
-    if not node:
-        raise HTTPException(status_code=404, detail="Node not found")
-    return templates.TemplateResponse(
-        "node_config.html", {"request": request, "node": node, "user": current_user}
-    )
-
-
-@app.post("/admin/{node_id}", response_class=HTMLResponse)
-async def update_node(
-    request: Request,
-    node_id: int,
-    name: str = Form(...),
-    content: str = Form(...),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    node = db.query(KioskNode).filter(KioskNode.id == node_id).first()
-    if not node:
-        raise HTTPException(status_code=404, detail="Node not found")
-    node.name = name
-    node.content = content
-    db.commit()
-    return RedirectResponse(
-        url=f"/admin/{node_id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

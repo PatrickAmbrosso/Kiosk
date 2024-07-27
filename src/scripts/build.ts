@@ -72,9 +72,7 @@ const filesToCopy = [
     { item: 'HTMX JS Library files', src: path.resolve('./node_modules/htmx.org/dist/htmx.min.js'), dest: 'static/htmx.min.js' },
     { item: 'flowbite UI files', src: path.resolve('./node_modules/flowbite/dist/flowbite.min.js'), dest: 'static/flowbite.min.js' },
     { item: 'asset files', src: path.resolve('./assets'), dest: 'assets' },
-    { item: 'templates directory', src: path.resolve('./templates'), dest: 'templates' },
-    { item: 'authenticated route files', src: path.resolve('./pages/konsole'), dest: 'konsole' },
-    { item: 'open route files', src: path.resolve('./pages/klient'), dest: 'klient' },
+    { item: 'templates directory', src: path.resolve('./templates'), dest: 'templates' }
 ];
 
 main(destDir, ignoreList, filesToCopy);
