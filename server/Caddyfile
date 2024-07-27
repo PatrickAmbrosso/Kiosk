@@ -1,0 +1,33 @@
+:80 {
+    root * ../web/klient
+	reverse_proxy localhost:8000
+
+    # Serve static files
+    handle_path /static/* {
+        file_server {
+            root ../web/static
+        }
+    }
+
+    # Serve asset files
+    handle_path /assets/* {
+        file_server {
+            root ../web/assets
+        }
+    }
+
+    # Serve public files (outside of web directory)
+    handle_path /public/* {
+        file_server {
+            root ../public
+        }
+    }
+
+    # Handle konsole requests (authenticated)
+    handle_path ../web/konsole/* {
+        reverse_proxy localhost:8000
+    }
+
+    # Fallback for other routes
+    try_files {path} /index.html
+}
