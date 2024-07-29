@@ -8,6 +8,7 @@
     <link href="/static/styles.css" rel="stylesheet">
     <script src="/static/htmx.min.js"></script>
     <script src="/static/flowbite.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 
 <body>
@@ -25,7 +26,7 @@
                         Sign in to your account
                     </h1>
                     <form id="login-form" class="space-y-4 md:space-y-6" hx-post="/admin/login"
-                        hx-target="#auth-response" hx-swap="outerHTML" hx-on::after-request="this.reset()">
+                        hx-target="#auth-response" hx-swap="innerHTML" hx-on::after-request="this.reset()">
                         <div>
                             <label for="username"
                                 class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Login ID</label>
@@ -47,7 +48,7 @@
                 </div>
             </div>
         </div>
-        <div id="auth-response"></div>
+        <div id="auth-response" class="fixed top-5 right-5 z-50"></div>
     </section>
 </body>
 

@@ -143,7 +143,8 @@ async def login(
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         return templates.TemplateResponse(
-            "/components/toast-warning.html", {"request": request}
+            "/components/toast-warning.html",
+            {"request": request, "err_message": "Invalid Username or Password"},
         )
     else:
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -178,13 +179,13 @@ async def admin_dashboard(
     current_user: User = Depends(get_current_user),
 ):
     if not current_user:
-        return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(
+            url="/admin/login", status_code=status.HTTP_303_SEE_OTHER
+        )
 
     nodes = db.query(KioskNode).all()
-    # Set cache control headers to prevent caching
     headers = {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Cache-Control": "post-check=0, pre-check=0",
         "Pragma": "no-cache",
     }
     return templates.TemplateResponse(
